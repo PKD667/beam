@@ -1,0 +1,15 @@
+[package]
+name = "beam"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/mod.rs"
+
+[[bin]]
+name = "beam"
+path = "src/main.rs"
+
+[dependencies]
+regex = "1.10"
+bimap = "0.6.3"
