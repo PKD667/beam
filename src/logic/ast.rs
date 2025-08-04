@@ -1,4 +1,4 @@
-use super::grammar::TypingRule;
+use super::grammar::typing::TypingRule;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceSpan {

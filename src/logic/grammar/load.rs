@@ -1,4 +1,4 @@
-use crate::logic::grammar::{Grammar, Production, TypingRule};
+use crate::logic::grammar::{utils::parse_inference_rule, Grammar, Production, TypingRule};
 use super::utils::{parse_nonterminal, parse_production, parse_rhs, special_tokens};
 use regex::Regex;
 
@@ -62,32 +62,11 @@ impl Grammar {
                         i += 1;
                     }
                 }
+            } else {
+                let ( premises, conclusion,name) = parse_inference_rule(&lines)?;
+                grammar.add_typing_rule(TypingRule::new(premises, conclusion, name)?);
             }
-            // Check if this block contains a typing rule (has dash line)
-            else if let Some(dash_idx) = lines.iter().position(|line| line.contains("---")) {
-                // Typing rule block
-                let premises = if dash_idx > 0 {
-                    lines[dash_idx - 1].to_string()
-                } else {
-                    String::new()
-                };
-                // Extract rule name from dash line
-                let name_regex = Regex::new(r"\(([^)]+)\)").unwrap();
-                let name = name_regex.captures(lines[dash_idx])
-                    .ok_or("No rule name found in dash line")?[1]
-                    .trim()
-                    .to_string();
-                
-                // Get conclusion (line after dash)
-                if dash_idx + 1 >= lines.len() {
-                    return Err("No conclusion after dash line".to_string());
-                }
-                let conclusion = lines[dash_idx + 1].to_string();
-                
-                // Create typing rule
-                let rule = TypingRule { name, premises, conclusion };
-                grammar.add_typing_rule(rule);
-            }
+
         }
         
         Ok(grammar)

@@ -1,5 +1,6 @@
 
-use crate::logic::grammar::{Grammar, Nonterminal, Production, Symbol,TypingRule};
+use crate::logic::grammar::{Grammar, Nonterminal, Production, Symbol};
+use crate::logic::grammar::typing::TypingRule;
 use crate::logic::ast::{ASTNode, NodeKind, SourceSpan};
 use crate::logic::tokenizer::Tokenizer;
 use regex;

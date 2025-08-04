@@ -88,8 +88,17 @@ pub fn special_tokens(rhs: &str) -> Vec<String> {
     found
 }
 
+/// =========
+/// Type Shit
+/// =========
+/// 
+/// 
+/// ------------
+/// Type Parsing
+/// ------------
+
 /// Parse a multi-line inference rule block
-pub fn parse_inference_rule(lines: &[&str]) -> Result<TypingRule, String> {
+pub fn parse_inference_rule(lines: &[&str]) -> Result<(String,String,String), String> {
     if lines.is_empty() {
         return Err("Empty rule block".into());
     }
@@ -114,6 +123,7 @@ pub fn parse_inference_rule(lines: &[&str]) -> Result<TypingRule, String> {
         }
         if !in_conclusion {
             premises = trimmed.to_string();
+            println!("Premises: {}", premises);
         } else {
             // first non-dash line after separator is conclusion
             conclusion = trimmed.to_string();
@@ -131,5 +141,85 @@ pub fn parse_inference_rule(lines: &[&str]) -> Result<TypingRule, String> {
         return Err("Typing rule has no name".into());
     }
 
-    Ok(TypingRule { name, premises, conclusion })
+    Ok((premises, conclusion, name))
 }
+
+pub const RELATION_SYMBOLS: [&str; 8] = ["=", "<", "∈", "⊆", "⊂", "⊃", "⊇", ":"];
+
+pub fn parse_judgement(
+    judgment_str: &str,
+) -> Result<(Option<Vec<(String,String)>>, String,String), String> {
+    let parts: Vec<&str> = judgment_str.split('⊢').map(str::trim).collect();
+    if parts.len() != 2 {
+        return Err(format!("Invalid typing judgment format: {}", judgment_str));
+    }
+    let (base, extensions) = parse_context_extensions(parts[0])?;
+    if base != "Γ" {
+        return Err(format!("Context must start with 'Γ', got '{}'", base));
+    }
+    // split the second part into expression and type
+    let expr_parts: Vec<&str> = parts[1].split(':').map(str::trim).collect();
+    if expr_parts.len() != 2 {
+        return Err(format!("Invalid typing judgment format: {}", judgment_str));
+    }
+    Ok((if extensions.is_empty() { None } else { Some(extensions) }, expr_parts[0].to_string(), expr_parts[1].to_string()))
+}
+
+/// Parses a context string like "Γ[x:τ₁][y:τ₂]" into (base_context, Vec<(variable, type)>)
+pub fn parse_context_extensions(context_str: &str) -> Result<(String, Vec<(String, String)>), String> {
+    let context_str = context_str.trim();
+    if !context_str.starts_with("Γ") {
+        return Err(format!("Context must start with 'Γ', got '{}'", context_str));
+    }
+    let base = "Γ".to_string();
+    let mut extensions = Vec::new();
+    let re = Regex::new(r"\[([^:\]]+):([^\]]+)\]").unwrap();
+    for cap in re.captures_iter(context_str) {
+        let var = cap.get(1).unwrap().as_str().trim().to_string();
+        let ty = cap.get(2).unwrap().as_str().trim().to_string();
+        if var.is_empty() || ty.is_empty() {
+            return Err(format!("Invalid context extension format, expected '[var:type]': [{:?}:{:?}]", var, ty));
+        }
+        extensions.push((var, ty));
+    }
+    Ok((base, extensions))
+}
+
+pub fn parse_membership(
+    membership_str: &str,
+) -> Result<(String, String), String> {
+    let parts: Vec<&str> = membership_str.split('∈').map(str::trim).collect();
+    if parts.len() != 2 {
+        return Err(format!("Invalid membership format: {}", membership_str));
+    }
+    Ok((parts[0].to_string(), parts[1].to_string()))
+}
+
+pub fn parse_type_relation(
+    relation_str: &str,
+) -> Result<(String, String, String), String> {
+    // we should have three parts
+    // left <arbitrary symbols> right
+    let mut left = String::new();
+    let mut right = String::new();
+    let mut relation = String::new();
+    for c in relation_str.chars() {
+        if RELATION_SYMBOLS.contains(&c.to_string().as_str()) {
+            relation.push(c);
+        } else {
+            if relation.is_empty() {
+                left.push(c);
+            } else {
+                right.push(c);
+            }
+        }
+    }
+    if relation.is_empty() {
+        return Err(format!("No relation symbol found in: {}", relation_str));
+    }
+    if left.is_empty() || right.is_empty() {
+        return Err(format!("Invalid type relation format: {}", relation_str));
+    }
+    Ok((left.trim().to_string(), right.trim().to_string(), relation))
+}
+

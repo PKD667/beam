@@ -39,12 +39,12 @@ Lambda(lambda) ::= 'λ' Variable[x] ':' Type[τ] '.' Term[e]
 //                      |         └─ binds semantic variable τ  
 //                      └─ binds semantic variable x
 
-Γ,x:τ ⊢ e : σ
+Γ[x:τ] ⊢ e : σ
 --------------------------- (lambda)
 τ -> σ
 ```
 
-## **DETERMINISTIC TYPING RULE FORMAT**
+## **Tyming rules**
 
 ### **Strict Rule Structure**
 Every typing rule MUST follow this exact format:
@@ -63,7 +63,7 @@ Every typing rule MUST follow this exact format:
 ### **Premise Types (Exhaustive List)**
 
 #### 1. **Typing Judgment**: `<context> ⊢ <expr> : <type>`
-**Format:** `Γ ⊢ e : τ` or `Γ,x:τ₁ ⊢ e : τ₂`
+**Format:** `Γ ⊢ e : τ` or `Γ[x:τ₁] ⊢ e : τ₂`
 
 **Rules:**
 - `<context>` MUST follow Context Format (see below)
@@ -75,19 +75,20 @@ Every typing rule MUST follow this exact format:
 **Valid Examples:**
 ```
 Γ ⊢ e : τ
-Γ,x:Int ⊢ e : Bool
-Γ,x:τ₁,y:τ₂ ⊢ f : τ₁ -> τ₂
+Γ[x:Int] ⊢ e : Bool
+Γ[x:τ₁][y:τ₂] ⊢ f : τ₁ -> τ₂
 ```
 
 **Invalid Examples:**
 ```
-Γ ⊢ e τ           // Missing :
-Γ,x ⊢ e : τ       // Invalid context extension
+Γ ⊢ e : τ           // Missing :
+Γ[x] ⊢ e : τ       // Invalid context extension (missing type)
 ⊢ e : τ           // Missing context
 Γ ⊢ : τ           // Missing expression
+Γ[x:τ₁,y:τ₂] ⊢ e : σ // Use separate brackets for each extension
 ```
 
-#### 2. **Context Membership**: `<var> ∈ <context>`
+#### 2. **Context Relation**: `<var> ∈ <context>`
 **Format:** `x ∈ Γ`
 
 **Rules:**
@@ -98,7 +99,7 @@ Every typing rule MUST follow this exact format:
 **Valid Examples:**
 ```
 x ∈ Γ
-f ∈ Γ
+x 
 ```
 
 **Invalid Examples:**
@@ -158,12 +159,12 @@ pred(not_var)    // Invalid argument format
 ### **Context Format (Strict Grammar)**
 ```
 <context> ::= 'Γ'                                    // Base context
-            | 'Γ,' <extension_list>                  // Extended context
+            | 'Γ' <bracketed_extension_list>         // Extended context
 
-<extension_list> ::= <extension>                      // Single extension
-                   | <extension> ',' <extension_list> // Multiple extensions
+<bracketed_extension_list> ::= <bracketed_extension>                  // Single extension
+                            | <bracketed_extension> <bracketed_extension_list> // Multiple extensions
 
-<extension> ::= <var> ':' <type>                     // Variable binding
+<bracketed_extension> ::= '[' <var> ':' <type> ']'   // Variable binding in brackets
 
 <var> ::= <semantic_variable>                        // Must be valid semantic variable
 <type> ::= <type_expression>                         // Must be valid type expression
@@ -172,18 +173,19 @@ pred(not_var)    // Invalid argument format
 **Valid Context Examples:**
 ```
 Γ                    // Base context
-Γ,x:τ               // Single extension
-Γ,x:τ₁,y:τ₂         // Multiple extensions
-Γ,f:τ->σ,x:τ        // Function type in context
+Γ[x:τ]               // Single extension
+Γ[x:τ₁][y:τ₂]        // Multiple extensions
+Γ[f:τ->σ][x:τ]       // Function type in context
 ```
 
 **Invalid Context Examples:**
 ```
 x:τ                 // Missing Γ base
-Γ x:τ               // Missing comma
-Γ,x τ               // Missing colon
-Γ,x:                // Missing type
-Γ,:τ                // Missing variable
+Γ x:τ               // Missing brackets
+Γ[x τ]              // Missing colon
+Γ[x:]               // Missing type
+Γ[:τ]               // Missing variable
+Γ[x:τ₁,y:τ₂]        // Use separate brackets for each extension
 ```
 
 ### **Type Expression Format (Strict Grammar)**
@@ -259,7 +261,8 @@ The conclusion MUST be one of:
 2. **Typing Judgment**: Following Typing Judgment Format
    ```
    Γ ⊢ e : τ
-   Γ,x:σ ⊢ f : τ -> σ
+   Γ[x:σ] ⊢ f : τ -> σ
+   Γ[x:τ₁][y:τ₂] ⊢ f : τ₁ -> τ₂
    ```
 
 ## Grammar Elements
@@ -324,13 +327,16 @@ x ∈ Γ
 ------------ (var)
 Γ(x)
 
-Γ,x:τ ⊢ e : σ
+Γ[x:τ] ⊢ e : σ
 --------------------------- (lambda)
 τ -> σ
 
 Γ ⊢ f : τ -> σ, Γ ⊢ e : τ
 -------------------------------- (app)  
 σ
+
+// Multiple extensions:
+Γ[x:τ₁][y:τ₂] ⊢ e : σ
 ```
 
 ## **Validation and Error Handling**
@@ -346,7 +352,7 @@ A typing rule is **INVALID** and MUST be rejected if:
 
 2. **Context Format Violations:**
    - Context doesn't start with `Γ`
-   - Invalid extension format (not `var:type`)
+   - Invalid extension format (not `[var:type]`)
    - Invalid variable or type in extension
 
 3. **Semantic Variable Violations:**
@@ -370,7 +376,7 @@ The type checker MUST provide specific error messages for each violation type:
 
 ```
 "Invalid typing judgment format: missing ⊢ symbol"
-"Invalid context extension format, expected 'var:type': x τ"
+"Invalid context extension format, expected '[var:type]': [x τ]"
 "Invalid semantic variable format: var123 (use subscripts like x₁₂₃)"
 "Missing required binding 'e' for rule 'lambda'"
 "Premise failed for rule 'app': Γ ⊢ f : τ -> σ"

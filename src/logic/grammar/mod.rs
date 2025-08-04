@@ -1,6 +1,7 @@
 pub mod utils;
 pub mod load;
 pub mod save;
+pub mod typing;
 
 use std::collections::HashMap;
 
@@ -24,21 +25,14 @@ impl Symbol {
 pub type Nonterminal = String;
 /// Convenience alias for terminal symbols.
 pub type Terminal = String;
-
-/// A typing rule written in standard inference-rule notation.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TypingRule {
-    pub name: String,
-    pub premises: String,
-    pub conclusion: String,
-}
-
 /// A single production rule `left ::= right₀ right₁ …`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Production {
     pub rule: Option<String>,
     pub rhs: Vec<Symbol>,
 }
+
+use typing::TypingRule;
 
 /// A complete grammar consisting of context-free productions and
 /// inference-style typing rules.
@@ -71,6 +65,7 @@ impl Grammar {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use super::typing::Conclusion;
 
     pub(crate) const STLC_SPEC: &str = r#"
 
@@ -109,7 +104,7 @@ pub(crate) mod tests {
     ------------ (var)
     Γ(x)
 
-    Γ,x:τ₁ ⊢ e : τ₂
+    Γ[x:τ₁] ⊢ e : τ₂
     --------------------------- (lambda)
     τ₁ → τ₂
 
@@ -140,12 +135,44 @@ pub(crate) mod tests {
         assert!(grammar.typing_rules.contains_key("app"));
         
         let lambda_rule = grammar.typing_rules.get("lambda").unwrap();
-        assert_eq!(lambda_rule.conclusion, "τ₁ → τ₂");
-        assert_eq!(lambda_rule.premises, "Γ,x:τ₁ ⊢ e : τ₂");
+        match &lambda_rule.conclusion {
+            Conclusion::TypeValue(s) => assert_eq!(s, "τ₁ → τ₂"),
+            _ => panic!("Expected TypeValue for lambda conclusion"),
+        }
+        assert_eq!(lambda_rule.premises.len(), 1);
+        match &lambda_rule.premises[0] {
+            typing::Premise::Judgment(typing::TypingJudgment { extensions, expression, type_expr }) => {
+                assert_eq!(extensions.len(), 1);
+                assert_eq!(extensions[0].variable, "x");
+                assert_eq!(extensions[0].type_expr, "τ₁");
+                assert_eq!(expression, "e");
+                assert_eq!(type_expr, "τ₂");
+            }
+            _ => panic!("Expected typing judgment for lambda premise"),
+        }
         
         let app_rule = grammar.typing_rules.get("app").unwrap();
-        assert_eq!(app_rule.conclusion, "τ₂");
-        assert_eq!(app_rule.premises, "Γ ⊢ f : τ₁ → τ₂, Γ ⊢ e : τ₁");
+        match &app_rule.conclusion {
+            Conclusion::TypeValue(s) => assert_eq!(s, "τ₂"),
+            _ => panic!("Expected TypeValue for app conclusion"),
+        }
+        assert_eq!(app_rule.premises.len(), 2);
+        match &app_rule.premises[0] {
+            typing::Premise::Judgment(typing::TypingJudgment { extensions, expression, type_expr }) => {
+                assert!(extensions.is_empty());
+                assert_eq!(expression, "f");
+                assert_eq!(type_expr, "τ₁ → τ₂");
+            }
+            _ => panic!("Expected typing judgment for app premise 0"),
+        }
+        match &app_rule.premises[1] {
+            typing::Premise::Judgment(typing::TypingJudgment { extensions, expression, type_expr }) => {
+                assert!(extensions.is_empty());
+                assert_eq!(expression, "e");
+                assert_eq!(type_expr, "τ₁");
+            }
+            _ => panic!("Expected typing judgment for app premise 1"),
+        }
     }
 
     #[test]

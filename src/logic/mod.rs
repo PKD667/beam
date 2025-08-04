@@ -1,13 +1,14 @@
-
 pub mod tokenizer;
 pub mod ast;
 pub mod grammar;
 pub mod parser;
 pub mod check;
+pub mod utils;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use grammar::typing::Conclusion;
     use grammar::Grammar;
     use parser::Parser;
     use ast::NodeKind;
@@ -29,13 +30,12 @@ mod tests {
     Application(app) ::= Term[f] Term[e]
     
     Term ::= Variable[v] | Lambda[l] | '(' Application[a] ')'
-    
 
     x ∈ Γ
     ------------ (var)
     Γ(x)
 
-    Γ,x:τ₁ ⊢ e : τ₂
+    Γ[x:τ₁] ⊢ e : τ₂
     --------------------------- (lambda)
     τ₁ → τ₂
 
@@ -174,8 +174,21 @@ mod tests {
         assert!(lambda.typing_rule.is_some(), "Lambda should have typing rule");
         
         let typing_rule = lambda.typing_rule.as_ref().unwrap();
-        assert_eq!(typing_rule.conclusion, "τ₁ → τ₂");
-        assert_eq!(typing_rule.premises, "Γ,x:τ₁ ⊢ e : τ₂");
+        match &typing_rule.conclusion {
+            Conclusion::TypeValue(s) => assert_eq!(s, "τ₁ → τ₂"),
+            _ => panic!("Expected TypeValue for lambda conclusion"),
+        }
+        assert_eq!(typing_rule.premises.len(), 1);
+        match &typing_rule.premises[0] {
+            grammar::typing::Premise::Judgment(grammar::typing::TypingJudgment { extensions, expression, type_expr }) => {
+                assert_eq!(extensions.len(), 1);
+                assert_eq!(extensions[0].variable, "x");
+                assert_eq!(extensions[0].type_expr, "τ₁");
+                assert_eq!(expression, "e");
+                assert_eq!(type_expr, "τ₂");
+            }
+            _ => panic!("Expected typing judgment for lambda premise"),
+        }
 
         let lambda_children = lambda.children.as_ref().unwrap();
         assert_eq!(lambda_children.len(), 4); // 'λ', Variable[x], '.', Term[e]
@@ -217,8 +230,27 @@ mod tests {
         assert!(app.typing_rule.is_some(), "Application should have typing rule");
         
         let typing_rule = app.typing_rule.as_ref().unwrap();
-        assert_eq!(typing_rule.conclusion, "τ₂");
-        assert_eq!(typing_rule.premises, "Γ ⊢ f : τ₁ → τ₂, Γ ⊢ e : τ₁");
+        match &typing_rule.conclusion {
+            Conclusion::TypeValue(s) => assert_eq!(s, "τ₂"),
+            _ => panic!("Expected TypeValue for app conclusion"),
+        }
+        assert_eq!(typing_rule.premises.len(), 2);
+        match &typing_rule.premises[0] {
+            grammar::typing::Premise::Judgment(grammar::typing::TypingJudgment { extensions, expression, type_expr }) => {
+                assert!(extensions.is_empty());
+                assert_eq!(expression, "f");
+                assert_eq!(type_expr, "τ₁ → τ₂");
+            }
+            _ => panic!("Expected typing judgment for app premise 0"),
+        }
+        match &typing_rule.premises[1] {
+            grammar::typing::Premise::Judgment(grammar::typing::TypingJudgment { extensions, expression, type_expr }) => {
+                assert!(extensions.is_empty());
+                assert_eq!(expression, "e");
+                assert_eq!(type_expr, "τ₁");
+            }
+            _ => panic!("Expected typing judgment for app premise 1"),
+        }
         
         let app_children = app.children.as_ref().unwrap();
         assert_eq!(app_children.len(), 2); // Term[f], Term[e]

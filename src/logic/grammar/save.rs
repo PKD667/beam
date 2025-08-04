@@ -1,5 +1,7 @@
 use std::path::Path;
 use super::{Grammar, Symbol};
+use super::typing::{Premise, TypingJudgment};
+
 
 impl Grammar {
     /// Produce the textual specification string.
@@ -41,11 +43,12 @@ impl Grammar {
             rule_list.sort_by_key(|r| &r.name);
             
             for rule in rule_list {
-                out.push_str(&rule.premises);
+                out.push_str(&format_premises(&rule.premises));
                 out.push('\n');
-                let line = "-".repeat(std::cmp::max(20, rule.conclusion.len() + 5));
+                let concl_str = format_conclusion(&rule.conclusion);
+                let line = "-".repeat(std::cmp::max(20, concl_str.len() + 5));
                 out.push_str(&format!("{} ({})\n", line, rule.name));
-                out.push_str(&rule.conclusion);
+                out.push_str(&concl_str);
                 out.push_str("\n\n");
             }
         }
@@ -80,5 +83,41 @@ fn format_rhs(rhs_symbols: &[Symbol]) -> String {
             }
         }
     }).collect::<Vec<_>>().join(" ")
-} 
+}
+
+/// Helper to format a list of premises as a string
+fn format_premises(premises: &[super::typing::Premise]) -> String {
+    premises.iter().map(|p| match p {
+        Premise::Judgment(TypingJudgment { extensions, expression, type_expr }) => {
+            let ctx = if extensions.is_empty() {
+                "Γ".to_string()
+            } else {
+                let exts = extensions.iter().map(|e| format!("{}:{}", e.variable, e.type_expr)).collect::<Vec<_>>().join(",");
+                format!("Γ,{}", exts)
+            };
+            format!("{} ⊢ {} : {}", ctx, expression, type_expr)
+        }
+        Premise::Membership { variable, context } => format!("{} ∈ {}", variable, context),
+        Premise::TypeRelation { left_type, right_type, relation } => format!("{} {} {}", left_type, relation, right_type),
+        Premise::Compound(inner) => format_premises(inner),
+    }).collect::<Vec<_>>().join(", ")
+}
+
+
+fn format_conclusion(conclusion: &super::typing::Conclusion) -> String {
+    use super::typing::Conclusion;
+    match conclusion {
+        Conclusion::TypeValue(s) => s.clone(),
+        Conclusion::Judgment(j) => {
+            let ctx = if j.extensions.is_empty() {
+                "Γ".to_string()
+            } else {
+                let exts = j.extensions.iter().map(|e| format!("{}:{}", e.variable, e.type_expr)).collect::<Vec<_>>().join(",");
+                format!("Γ,{}", exts)
+            };
+            format!("{} ⊢ {} : {}", ctx, j.expression, j.type_expr)
+        }
+        Conclusion::ContextLookup(var) => format!("Γ({})", var),
+    }
+}
 
