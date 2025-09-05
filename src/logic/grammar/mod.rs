@@ -1,7 +1,6 @@
 pub mod utils;
 pub mod load;
 pub mod save;
-pub mod typing;
 
 use std::collections::HashMap;
 
@@ -32,19 +31,23 @@ pub struct Production {
     pub rhs: Vec<Symbol>,
 }
 
-use typing::TypingRule;
+use crate::logic::typing::TypingRule;
 
 /// A complete grammar consisting of context-free productions and
 /// inference-style typing rules.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Grammar {
     pub productions: HashMap<Nonterminal, Vec<Production>>,
     pub typing_rules: HashMap<String, TypingRule>, // name -> rule
     pub special_tokens: Vec<String>,
+    // Optional explicit start nonterminal for parsing
+    pub start: Option<Nonterminal>,
+    // Preserve declaration order of productions as they appear in the spec
+    pub production_order: Vec<Nonterminal>,
 }
 
 impl Grammar {
-    /// Create an empty grammar.
+    /// Create an empty grammar
     pub fn new() -> Self {
         Self::default()
     }
@@ -60,22 +63,32 @@ impl Grammar {
     pub fn add_typing_rule(&mut self, rule: TypingRule) {
         self.typing_rules.insert(rule.name.clone(), rule);
     }
+
+    /// Set the start nonterminal.
+    pub fn set_start<S: Into<Nonterminal>>(&mut self, start: S) {
+        self.start = Some(start.into());
+    }
+
+    /// Get the start nonterminal if available.
+    pub fn start_nonterminal(&self) -> Option<&Nonterminal> {
+        self.start.as_ref()
+    }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use super::typing::Conclusion;
+    use crate::logic::typing;  // Needed for tests
 
-    pub(crate) const STLC_SPEC: &str = r#"
+    pub const STLC_SPEC: &str = r#"
 
-    // Identifier
-    Identifier ::= /[a-zA-Z][a-zA-Z0-9_]*/
+    // Identifier (supports Unicode)
+    Identifier ::= /[\p{L}][\p{L}\p{N}_τ₁₂₃₄₅₆₇₈₉₀]*/
 
-    // Variables
+    // Variables with var typing rule
     Variable(var) ::= Identifier[x]
 
-    // Type names  
+    // Type names (supports Unicode type variables like τ₁, τ₂)
     TypeName ::= Identifier
 
     // Base types
@@ -89,6 +102,7 @@ pub(crate) mod tests {
 
     // Lambda abstraction
     Lambda(lambda) ::= 'λ' TypedParam '.' Term[e]
+    
 
     // Base terms (cannot be applications)
     BaseTerm ::= Variable | Lambda | '(' Term ')'
@@ -101,7 +115,7 @@ pub(crate) mod tests {
 
     // Typing Rules
     x ∈ Γ
-    ------------ (var)
+    ----------- (var)
     Γ(x)
 
     Γ[x:τ₁] ⊢ e : τ₂
@@ -134,52 +148,63 @@ pub(crate) mod tests {
         assert!(grammar.typing_rules.contains_key("lambda"));
         assert!(grammar.typing_rules.contains_key("app"));
         
-        let lambda_rule = grammar.typing_rules.get("lambda").unwrap();
-        match &lambda_rule.conclusion {
-            Conclusion::TypeValue(s) => assert_eq!(s, "τ₁ → τ₂"),
-            _ => panic!("Expected TypeValue for lambda conclusion"),
+        let var_rule = grammar.typing_rules.get("var").unwrap();
+        assert_eq!(var_rule.conclusion, typing::Conclusion::ContextLookup("Γ".to_string(), "x".to_string()));
+        assert_eq!(var_rule.premises.len(), 1);
+        match &var_rule.premises[0] {
+            typing::Premise { setting: None, judgment: typing::TypingJudgment::Membership(var, ctx) } => {
+                assert_eq!(var, "x");
+                assert_eq!(ctx, "Γ");
+            }
+            _ => panic!("Expected membership judgment for var rule"),
         }
+        
+        let lambda_rule = grammar.typing_rules.get("lambda").unwrap();
+        assert_eq!(lambda_rule.conclusion, typing::Conclusion::Type(typing::Type::parse("τ₁ → τ₂").unwrap()));
         assert_eq!(lambda_rule.premises.len(), 1);
         match &lambda_rule.premises[0] {
-            typing::Premise::Judgment(typing::TypingJudgment { extensions, expression, type_expr }) => {
-                assert_eq!(extensions.len(), 1);
-                assert_eq!(extensions[0].variable, "x");
-                assert_eq!(extensions[0].type_expr, "τ₁");
-                assert_eq!(expression, "e");
-                assert_eq!(type_expr, "τ₂");
+            typing::Premise { setting, judgment: typing::TypingJudgment::Ascription((term, ty)) } => {
+                let setting = setting.as_ref().unwrap();
+                assert_eq!(setting.name, "Γ");
+                assert_eq!(setting.extensions.len(), 1);
+                assert_eq!(setting.extensions[0].0, "x");
+                assert_eq!(format!("{}", setting.extensions[0].1), "τ₁");
+                assert_eq!(term, "e");
+                assert_eq!(format!("{}", ty), "τ₂");
             }
-            _ => panic!("Expected typing judgment for lambda premise"),
+            _ => panic!("Expected ascription judgment for lambda rule"),
         }
         
         let app_rule = grammar.typing_rules.get("app").unwrap();
-        match &app_rule.conclusion {
-            Conclusion::TypeValue(s) => assert_eq!(s, "τ₂"),
-            _ => panic!("Expected TypeValue for app conclusion"),
-        }
+        assert_eq!(app_rule.conclusion, typing::Conclusion::Type(typing::Type::parse("τ₂").unwrap()));
         assert_eq!(app_rule.premises.len(), 2);
         match &app_rule.premises[0] {
-            typing::Premise::Judgment(typing::TypingJudgment { extensions, expression, type_expr }) => {
-                assert!(extensions.is_empty());
-                assert_eq!(expression, "f");
-                assert_eq!(type_expr, "τ₁ → τ₂");
+            typing::Premise { setting, judgment: typing::TypingJudgment::Ascription((term, ty)) } => {
+                assert!(setting.is_none() || setting.as_ref().unwrap().extensions.is_empty());
+                assert_eq!(term, "f");
+                assert_eq!(format!("{}", ty), "τ₁ → τ₂");
             }
-            _ => panic!("Expected typing judgment for app premise 0"),
+            _ => panic!("Expected ascription judgment for app rule premise 0"),
         }
         match &app_rule.premises[1] {
-            typing::Premise::Judgment(typing::TypingJudgment { extensions, expression, type_expr }) => {
-                assert!(extensions.is_empty());
-                assert_eq!(expression, "e");
-                assert_eq!(type_expr, "τ₁");
+            typing::Premise { setting, judgment: typing::TypingJudgment::Ascription((term, ty)) } => {
+                assert!(setting.is_none() || setting.as_ref().unwrap().extensions.is_empty());
+                assert_eq!(term, "e");
+                assert_eq!(format!("{}", ty), "τ₁");
             }
-            _ => panic!("Expected typing judgment for app premise 1"),
+            _ => panic!("Expected ascription judgment for app rule premise 1"),
         }
+
+        // Start symbol should be the last production LHS (convention)
+        assert_eq!(grammar.start_nonterminal().cloned(), Some("Term".to_string()));
+        assert_eq!(grammar.production_order.last(), Some(&"Term".to_string()));
     }
 
     #[test]
     fn roundtrip_write_and_parse() {
         let grammar1 = Grammar::load(STLC_SPEC).expect("parse");
         let spec = grammar1.to_spec_string();
-        println!("Generated spec:\n{}", spec);
+        // Removed debug print - use unified debug system if needed
         let grammar2 = Grammar::load(&spec).expect("re-parse");
 
         // Compare essential parts instead of direct equality (HashMap ordering can differ)
@@ -204,5 +229,9 @@ pub(crate) mod tests {
         tokens1.sort();
         tokens2.sort();
         assert_eq!(tokens1, tokens2);
+
+        // Start symbol preserved through roundtrip
+        assert_eq!(grammar1.start_nonterminal(), grammar2.start_nonterminal());
+        assert_eq!(grammar1.production_order, grammar2.production_order);
     }
 }

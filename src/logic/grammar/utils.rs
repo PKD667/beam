@@ -1,5 +1,5 @@
 use regex::Regex;
-use super::{TypingRule, Symbol};
+use super::Symbol;
 
 // collection of utils for working with grammar definitions
 pub fn is_regex(pattern: &str) -> bool {
@@ -49,15 +49,36 @@ pub fn parse_rhs(rhs: &str) -> Result<Vec<Vec<Symbol>>, String> {
                         // Symbol with binding like "Variable[x]"
                         let value = token[..open_bracket].to_string();
                         let binding = token[open_bracket + 1..close_bracket].to_string();
-                        symbols_in_alt.push(Symbol::with_binding(value, binding));
+                        
+                        // Strip quotes from the value if it's a quoted terminal
+                        let clean_value = if (value.starts_with('\'') && value.ends_with('\'')) || 
+                                           (value.starts_with('"') && value.ends_with('"')) {
+                            value.trim_matches('\'').trim_matches('"').to_string()
+                        } else {
+                            value
+                        };
+                        
+                        symbols_in_alt.push(Symbol::with_binding(clean_value, binding));
                         continue;
                     }
                 }
                 // If we get here, it has brackets but not a valid binding - treat as regular symbol
-                symbols_in_alt.push(Symbol::new(token.to_string()));
+                let clean_token = if (token.starts_with('\'') && token.ends_with('\'')) || 
+                                   (token.starts_with('"') && token.ends_with('"')) {
+                    token.trim_matches('\'').trim_matches('"').to_string()
+                } else {
+                    token.to_string()
+                };
+                symbols_in_alt.push(Symbol::new(clean_token));
             } else {
-                // Regular symbol without binding
-                symbols_in_alt.push(Symbol::new(token.to_string()));
+                // Regular symbol without binding - strip quotes if it's a terminal
+                let clean_token = if (token.starts_with('\'') && token.ends_with('\'')) || 
+                                   (token.starts_with('"') && token.ends_with('"')) {
+                    token.trim_matches('\'').trim_matches('"').to_string()
+                } else {
+                    token.to_string()
+                };
+                symbols_in_alt.push(Symbol::new(clean_token));
             }
         }
         alternatives.push(symbols_in_alt);
@@ -123,7 +144,6 @@ pub fn parse_inference_rule(lines: &[&str]) -> Result<(String,String,String), St
         }
         if !in_conclusion {
             premises = trimmed.to_string();
-            println!("Premises: {}", premises);
         } else {
             // first non-dash line after separator is conclusion
             conclusion = trimmed.to_string();
@@ -142,9 +162,7 @@ pub fn parse_inference_rule(lines: &[&str]) -> Result<(String,String,String), St
     }
 
     Ok((premises, conclusion, name))
-}
-
-pub const RELATION_SYMBOLS: [&str; 8] = ["=", "<", "∈", "⊆", "⊂", "⊃", "⊇", ":"];
+}pub const RELATION_SYMBOLS: [&str; 8] = ["=", "<", "∈", "⊆", "⊂", "⊃", "⊇", ":"];
 
 pub fn parse_judgement(
     judgment_str: &str,
