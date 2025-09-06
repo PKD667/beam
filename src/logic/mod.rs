@@ -10,6 +10,7 @@ pub mod bind;
 pub mod debug;
 pub mod test_grammars;
 pub mod debug_tests;
+pub mod test_logic;
 
 
 
